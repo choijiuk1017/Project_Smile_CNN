@@ -3,46 +3,89 @@ import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import datasets, transforms, models
+from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, random_split
 
-# =========================
-# 기본 설정
-# =========================
-DATASET_PATH = "dataset"              # 학습 이미지 폴더 (클래스별 폴더 구조)
-MODEL_SAVE_PATH = "cnn_weights.pth"  # 학습된 모델 저장 위치
-CLASS_NAMES_PATH = "class_names.json" # 클래스 이름 저장
 
-IMAGE_SIZE = 224                     # ResNet 입력 크기 (고정)
-BATCH_SIZE = 16                      # 한 번에 학습할 이미지 개수
-EPOCHS = 15                          # 학습 반복 횟수
-LEARNING_RATE = 0.0003               # 학습률 (너무 크면 발산, 작으면 느림)
-TRAIN_RATIO = 0.8                    # train/val 분할 비율
-SEED = 42                            # 랜덤 고정 (재현성)
-NUM_WORKERS = 2                      # 데이터 로딩 병렬 처리
+# =========================
+# 설정
+# =========================
+DATASET_PATH = "dataset"              # 학습 이미지 폴더 경로
+MODEL_SAVE_PATH = "cnn_weights.pth"   # 학습 완료 후 모델 저장 파일
+CLASS_NAMES_PATH = "class_names.json" # 클래스 이름 저장 파일
+
+IMAGE_SIZE = 224      # 입력 이미지 크기
+BATCH_SIZE = 16       # 한 번에 학습할 이미지 개수
+EPOCHS = 35           # 전체 학습 반복 횟수
+LEARNING_RATE = 0.001 # 학습률
+TRAIN_RATIO = 0.8     # 학습용 데이터 비율
+SEED = 42             # 랜덤 시드 고정
+
+NUM_WORKERS = 2       # 데이터 로더 병렬 처리 수
+
+
+# =========================
+# SimpleCNN 모델 정의
+# =========================
+class SimpleCNN(nn.Module):
+    def __init__(self, num_classes: int):
+        super().__init__()
+
+        # 특징 추출부
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 16, kernel_size=3, padding=1),   # 224x224
+            nn.ReLU(),
+            nn.MaxPool2d(2),                              # 112x112
+
+            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),                              # 56x56
+
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),                              # 28x28
+
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((1, 1))                  # 1x1
+        )
+
+        # 분류부
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(64, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.features(x)   # 특징 추출
+        x = self.classifier(x) # 클래스 분류
+        return x
 
 
 # =========================
 # 검증 함수
 # =========================
 def evaluate(model, loader, criterion, device):
-    model.eval()  # 평가 모드 (Dropout, BN 고정)
+    model.eval()
 
     total_loss = 0.0
     correct = 0
     total = 0
 
-    with torch.no_grad():  # gradient 계산 안함 (속도 + 메모리)
+    with torch.no_grad():
         for images, labels in loader:
             images = images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
 
-            outputs = model(images)        # 예측
+            outputs = model(images)
             loss = criterion(outputs, labels)
 
             total_loss += loss.item() * images.size(0)
 
-            _, predicted = torch.max(outputs, 1)  # 가장 높은 확률 선택
+            _, predicted = torch.max(outputs, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
@@ -51,46 +94,34 @@ def evaluate(model, loader, criterion, device):
     return avg_loss, acc
 
 
+# =========================
+# 메인 학습 함수
+# =========================
 def main():
-    torch.manual_seed(SEED)  # 랜덤 고정
+    torch.manual_seed(SEED)
 
-    # =========================
-    # 디바이스 설정 (GPU 우선)
-    # =========================
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
     if torch.cuda.is_available():
         print(f"GPU name: {torch.cuda.get_device_name(0)}")
         print(f"CUDA version (torch): {torch.version.cuda}")
-        torch.backends.cudnn.benchmark = True  # GPU 최적화
+        torch.backends.cudnn.benchmark = True
 
     # =========================
-    # 데이터 전처리 (핵심)
+    # 데이터 전처리 / 증강
     # =========================
     train_transform = transforms.Compose([
-        transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),  # 크기 맞춤
-        transforms.RandomHorizontalFlip(p=0.5),       # 좌우 반전 (데이터 증가)
-        transforms.RandomRotation(10),                # 약간 회전
-        transforms.ColorJitter(                       # 밝기/색상 변화
-            brightness=0.25, 
-            contrast=0.25, 
-            saturation=0.2
-        ),
-        transforms.ToTensor(),                        # PIL → Tensor
-        transforms.Normalize(                         # ResNet 필수 정규화
-            [0.485, 0.456, 0.406],
-            [0.229, 0.224, 0.225]
-        ),
+        transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomRotation(10),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2),
+        transforms.ToTensor(),
     ])
 
     val_transform = transforms.Compose([
         transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
         transforms.ToTensor(),
-        transforms.Normalize(
-            [0.485, 0.456, 0.406],
-            [0.229, 0.224, 0.225]
-        ),
     ])
 
     # =========================
@@ -104,12 +135,12 @@ def main():
     num_classes = len(class_names)
 
     if num_classes < 2:
-        raise ValueError("최소 2개 이상의 클래스 필요")
+        raise ValueError("최소 2개 이상의 클래스 폴더가 필요합니다.")
 
     print("Classes:", class_names)
     print("Total images:", len(base_dataset))
 
-    # 클래스 이름 저장 (서버에서 사용)
+    # 클래스 이름 저장
     with open(CLASS_NAMES_PATH, "w", encoding="utf-8") as f:
         json.dump(class_names, f, ensure_ascii=False, indent=2)
 
@@ -125,18 +156,12 @@ def main():
         generator=torch.Generator().manual_seed(SEED)
     )
 
-    # transform 적용
-    train_dataset.dataset = datasets.ImageFolder(
-        root=DATASET_PATH, transform=train_transform)
-    val_dataset.dataset = datasets.ImageFolder(
-        root=DATASET_PATH, transform=val_transform)
+    train_dataset.dataset = datasets.ImageFolder(root=DATASET_PATH, transform=train_transform)
+    val_dataset.dataset = datasets.ImageFolder(root=DATASET_PATH, transform=val_transform)
 
     use_pin_memory = torch.cuda.is_available()
     use_persistent_workers = NUM_WORKERS > 0
 
-    # =========================
-    # DataLoader (GPU 효율)
-    # =========================
     train_loader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
@@ -156,32 +181,19 @@ def main():
     )
 
     # =========================
-    # 모델 (핵심)
+    # 모델 / 손실 함수 / 옵티마이저
     # =========================
-    weights = models.ResNet18_Weights.DEFAULT  # 사전학습 모델
-    model = models.resnet18(weights=weights)
+    model = SimpleCNN(num_classes=num_classes).to(device)
+    print("Model device:", next(model.parameters()).device)
 
-    # 마지막 FC층만 교체 (클래스 수 맞추기)
-    model.fc = nn.Linear(model.fc.in_features, num_classes)
-
-    model = model.to(device)
-
-    # =========================
-    # 학습 설정
-    # =========================
-    criterion = nn.CrossEntropyLoss()          # 분류 손실
+    criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
-    # 성능 안 오르면 LR 줄임
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="max", factor=0.5, patience=2
-    )
-
+    # =========================
+    # 학습
+    # =========================
     best_val_acc = 0.0
 
-    # =========================
-    # 학습 루프
-    # =========================
     for epoch in range(EPOCHS):
         model.train()
 
@@ -195,11 +207,11 @@ def main():
 
             optimizer.zero_grad()
 
-            outputs = model(images)        # forward
+            outputs = model(images)
             loss = criterion(outputs, labels)
 
-            loss.backward()                # backprop
-            optimizer.step()               # 가중치 업데이트
+            loss.backward()
+            optimizer.step()
 
             running_loss += loss.item() * images.size(0)
 
@@ -207,12 +219,10 @@ def main():
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
-        train_loss = running_loss / total
-        train_acc = 100.0 * correct / total
+        train_loss = running_loss / total if total > 0 else 0.0
+        train_acc = 100.0 * correct / total if total > 0 else 0.0
 
         val_loss, val_acc = evaluate(model, val_loader, criterion, device)
-
-        scheduler.step(val_acc)  # 성능 기준 LR 감소
 
         print(
             f"Epoch [{epoch + 1}/{EPOCHS}] | "
@@ -220,7 +230,7 @@ def main():
             f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%"
         )
 
-        # 최고 성능 모델 저장
+        # 최고 검증 정확도 갱신 시 저장
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             torch.save(model.state_dict(), MODEL_SAVE_PATH)
