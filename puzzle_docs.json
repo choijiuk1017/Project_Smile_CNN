@@ -1,0 +1,26 @@
+[
+    {
+        "id": "tutorial_Door_01",
+        "puzzle_id": "TutorialDoorPuzzle",
+        "area_id": "TutorialZone",
+        "labels": ["LockedDoor"],
+        "spoiler_level": 1,
+        "content": "이 문은 전자식 잠금 장치가 부착된 진행 차단 요소로, 단순한 방법으로는 열리지 않을 가능성이 높다."
+    },
+    {
+        "id": "tutorial_Keycard_01",
+        "puzzle_id": "TutorialDoorPuzzle",
+        "area_id": "TutorialZone",
+        "labels": ["KeyCard"],
+        "spoiler_level": 1,
+        "content": "이 카드는 직원들의 출입증처럼 보인다."
+    },
+    {
+        "id": "tutorial_Corpse_01",
+        "puzzle_id": "TutorialDoorPuzzle",
+        "area_id": "TutorialZone",
+        "labels": ["CorpseScene"],
+        "spoiler_level": 1,
+        "content": "직원들은 무언가에게 살해당한 것 같고 주변에 다음 조사 대상이 있을 가능성이 있다."
+    }
+]
