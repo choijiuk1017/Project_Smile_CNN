@@ -1,26 +1,29 @@
 [
-    {
-        "id": "tutorial_Door_01",
-        "puzzle_id": "TutorialDoorPuzzle",
-        "area_id": "TutorialZone",
-        "labels": ["LockedDoor"],
-        "spoiler_level": 1,
-        "content": "이 문은 전자식 잠금 장치가 부착된 진행 차단 요소로, 단순한 방법으로는 열리지 않을 가능성이 높다."
-    },
-    {
-        "id": "tutorial_Keycard_01",
-        "puzzle_id": "TutorialDoorPuzzle",
-        "area_id": "TutorialZone",
-        "labels": ["KeyCard"],
-        "spoiler_level": 1,
-        "content": "이 카드는 직원들의 출입증처럼 보인다."
-    },
-    {
-        "id": "tutorial_Corpse_01",
-        "puzzle_id": "TutorialDoorPuzzle",
-        "area_id": "TutorialZone",
-        "labels": ["CorpseScene"],
-        "spoiler_level": 1,
-        "content": "직원들은 무언가에게 살해당한 것 같고 주변에 다음 조사 대상이 있을 가능성이 있다."
-    }
+  {
+    "id": "tutorial_zone_01",
+    "area_id": "TutorialZone",
+    "spoiler_level": 1,
+    "facts": [
+      "이 구역에는 진행을 막는 문이 존재할 수 있다",
+      "진행을 막는 문은 단순한 문이 아닌, 주변이 어둡고 시체가 쓰러져 있는 장소에 있다",
+      "잠긴 문에는 PRIVATE라는 글씨가 적혀있다",
+      "잠긴 문은 옆에 푸른 빛으로 빛나는 키패드와 붉은 빛을 내는 램프가 있다",
+      "이 구역에는 직원이 살해된 흔적이 존재할 수 있다",
+      "출입증은 시체가 있는 방의 테이블 위에 있다"
+    ],
+    "hint_rules": [
+      "이미지에 시체나 혈흔이 보일 때만 직원의 흔적을 언급한다",
+      "시체는 큰 의미의 퍼즐은 아니니 무언가에 당했다는 흔적만 언급한다",
+      "이미지에 카드나 출입증처럼 보이는 물체가 보일 때만 카드를 언급한다",
+      "이미지에 문이 보인다고 해서 바로 전자식 잠금 장치라고 단정하지 않는다",
+      "문, 시체, 카드 중 이미지에 실제로 보이는 요소만 연결해서 힌트를 만든다",
+      "카드를 직접 정답으로 말하지 않는다"
+    ],
+    "forbidden_assumptions": [
+      "모든 문이 전자식 잠금 장치라고 단정하지 않는다",
+      "이미지에 보이지 않는 카드를 있다고 말하지 않는다",
+      "이미지에 보이지 않는 시체나 혈흔을 있다고 말하지 않는다",
+      "날짜, 시간, 번호, 암호, 순서, 패턴을 만들지 않는다"
+    ]
+  }
 ]

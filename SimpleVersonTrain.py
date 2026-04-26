@@ -33,21 +33,21 @@ class SimpleCNN(nn.Module):
 
         # 특징 추출부
         self.features = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, padding=1),   # 224x224
+            nn.Conv2d(3, 16, 3, 1),  
             nn.ReLU(),
-            nn.MaxPool2d(2),                              # 112x112
+            nn.MaxPool2d(2),                              
 
-            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+            nn.Conv2d(16, 32, 3, 1),
             nn.ReLU(),
-            nn.MaxPool2d(2),                              # 56x56
+            nn.MaxPool2d(2),                             
 
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.Conv2d(32, 64, 3, 1),
             nn.ReLU(),
-            nn.MaxPool2d(2),                              # 28x28
+            nn.MaxPool2d(2),                             
 
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.Conv2d(64, 128, 3, 1),
             nn.ReLU(),
-            nn.AdaptiveAvgPool2d((1, 1))                  # 1x1
+            nn.AdaptiveAvgPool2d((1, 1))                 
         )
 
         # 분류부
