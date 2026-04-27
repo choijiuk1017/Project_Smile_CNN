@@ -4,6 +4,7 @@ import io
 import json
 import torch
 import logging
+import re
 
 from transformers import (
     LlavaOnevisionProcessor,
@@ -16,29 +17,20 @@ from peft import PeftModel
 
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
-# =========================
-# 설정
-# =========================
 KNOWLEDGE_BASE_PATH = "puzzle_docs.json"
 
 LLAVA_MODEL_ID = "llava-hf/llava-onevision-qwen2-0.5b-ov-hf"
-LLM_MODEL_ID = "google/gemma-2-2b-it"
-LORA_ADAPTER_PATH = "./gemma_hint_lora"
+LLM_MODEL_ID = "Qwen/Qwen3-4B-Instruct-2507"
+LORA_ADAPTER_PATH = "./qwen3_hint_lora"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
 app = Flask(__name__)
 
-# =========================
-# RAG 문서 로드
-# =========================
 with open(KNOWLEDGE_BASE_PATH, "r", encoding="utf-8") as f:
     knowledge_base = json.load(f)
 
-# =========================
-# LLaVA 로드
-# =========================
 print("Loading LLaVA...")
 llava_processor = LlavaOnevisionProcessor.from_pretrained(LLAVA_MODEL_ID)
 
@@ -49,32 +41,31 @@ llava_model = LlavaOnevisionForConditionalGeneration.from_pretrained(
 )
 llava_model.eval()
 
-# =========================
-# Gemma 2 + LoRA 로드
-# =========================
-print("Loading Gemma 2 Base...")
-tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_ID)
+print("Loading Qwen3 Tokenizer...")
+tokenizer = AutoTokenizer.from_pretrained(
+    LORA_ADAPTER_PATH,
+    trust_remote_code=True
+)
 
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 
-llm_model = AutoModelForCausalLM.from_pretrained(
+print("Loading Qwen3 Base...")
+base_model = AutoModelForCausalLM.from_pretrained(
     LLM_MODEL_ID,
     dtype=dtype,
-    device_map="auto"
+    device_map="auto",
+    trust_remote_code=True
 )
 
-print("Loading Gemma LoRA Adapter...")
+print("Loading Qwen3 LoRA Adapter...")
 llm_model = PeftModel.from_pretrained(
-    llm_model,
+    base_model,
     LORA_ADAPTER_PATH
 )
-
 llm_model.eval()
 
-# =========================
-# RAG 검색
-# =========================
+
 def retrieve_documents_by_area(area_id, max_spoiler_level=1):
     return [
         doc for doc in knowledge_base
@@ -82,16 +73,33 @@ def retrieve_documents_by_area(area_id, max_spoiler_level=1):
         and doc.get("spoiler_level", 999) <= max_spoiler_level
     ]
 
-# =========================
-# 이미지 크기 축소
-# =========================
+
+def build_rag_context(rag_docs):
+    if not rag_docs:
+        return "관련 문서 없음"
+
+    lines = []
+
+    for doc in rag_docs:
+        for fact in doc.get("facts", []):
+            lines.append(f"- FACT: {fact}")
+        for rule in doc.get("hint_rules", []):
+            lines.append(f"- RULE: {rule}")
+        for forbidden in doc.get("forbidden_assumptions", []):
+            lines.append(f"- FORBIDDEN: {forbidden}")
+
+        content = doc.get("content")
+        if content:
+            lines.append(f"- CONTENT: {content}")
+
+    return "\n".join(lines) if lines else "관련 문서 없음"
+
+
 def resize_image(image, max_size=384):
     image.thumbnail((max_size, max_size))
     return image
 
-# =========================
-# 1단계: LLaVA 이미지 분석
-# =========================
+
 def analyze_image_with_llava(image_bytes):
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     image = resize_image(image, 384)
@@ -104,11 +112,12 @@ def analyze_image_with_llava(image_bytes):
                 {
                     "type": "text",
                     "text": (
-                        "Describe this horror game scene in English. "
-                        "Focus on visible puzzle-relevant clues only: blood, corpse, body, door, "
-                        "keycard, card, lock, device, stairs, hallway, strange traces. "
-                        "Do not solve the puzzle. "
-                        "Write one short sentence."
+                        "Describe only what is visibly present in the image. "
+                        "Do not infer gameplay, objectives, solutions, story, danger, or player actions. "
+                        "Do not say 'the player must', 'suggesting', 'trapped', or 'navigate'. "
+                        "Do not guess that an object is a keycard unless it is clearly visible as a card. "
+                        "Mention only visible objects, colors, positions, and scene elements. "
+                        "Write one short English sentence."
                     )
                 }
             ]
@@ -129,49 +138,98 @@ def analyze_image_with_llava(image_bytes):
     with torch.no_grad():
         output = llava_model.generate(
             **inputs,
-            max_new_tokens=50,
+            max_new_tokens=80,
             do_sample=False,
             pad_token_id=llava_processor.tokenizer.eos_token_id
         )
 
     generated = output[0][inputs["input_ids"].shape[-1]:]
-    scene_text = llava_processor.decode(generated, skip_special_tokens=True)
+    scene_text = llava_processor.decode(generated, skip_special_tokens=True).strip()
 
-    return scene_text.strip()
+    banned_phrases = [
+        "player must",
+        "navigate",
+        "trapped",
+        "suggesting",
+        "horror game",
+        "dangerous situation",
+        "solve the puzzle"
+    ]
 
-# =========================
-# 2단계: Gemma LoRA 힌트 생성
-# =========================
-def generate_hint_with_gemma_lora(scene_text, area_id, rag_docs):
-    rag_context = "\n".join(
-        [f"- {doc.get('content', '')}" for doc in rag_docs]
-    ) or "관련 문서 없음"
+    lowered = scene_text.lower()
+    if any(p in lowered for p in banned_phrases):
+        scene_text = "Visible scene elements are unclear, but only visible objects should be considered."
+
+    return scene_text
+
+
+def extract_json_object(text):
+    clean = text.strip()
+
+    if clean.startswith("```"):
+        clean = re.sub(r"^```(?:json)?", "", clean).strip()
+        clean = re.sub(r"```$", "", clean).strip()
+
+    try:
+        return json.loads(clean)
+    except Exception:
+        pass
+
+    match = re.search(r"\{.*\}", clean, re.DOTALL)
+    if not match:
+        return None
+
+    try:
+        return json.loads(match.group(0))
+    except Exception:
+        return None
+
+
+def generate_hint_with_qwen3_lora(scene_text, area_id, rag_docs):
+    rag_context = build_rag_context(rag_docs)
 
     messages = [
         {
+            "role": "system",
+            "content": (
+                "너는 공포 퍼즐 게임의 조사 보조 AI다. "
+                "LLaVA 장면 설명과 RAG 문서를 종합해서 플레이어에게 보여줄 힌트만 작성한다. "
+                "절대 JSON, 목록, 제목, 마크다운을 출력하지 않는다."
+            )
+        },
+        {
             "role": "user",
             "content": f"""
-너는 공포 퍼즐 게임의 힌트 생성기다.
+너는 공포 퍼즐 게임의 조사 보조 AI다.
+
+너의 목표는 분위기 잡는 게 아니라,
+장면에 보이는 요소를 기반으로 플레이어가 다음 행동을 떠올리게 만드는 것이다.
+
+규칙:
+- 반드시 한국어 1문장만 출력한다.
+- 감성적인 표현, 시적인 표현 금지
+- 모호한 표현 금지 ("뭔가", "어딘가", "무언가" 금지)
+- 장면에 보이는 요소를 반드시 포함한다 (시체, 혈흔, 문, 테이블 등)
+- scene에 없는 것은 절대 말하지 않는다
+- RAG 문서는 참고해서 연결만 한다
+- 정답을 직접 말하지 않는다
+- 문장은 "관찰 → 의미 연결" 구조로 작성한다
+
+좋은 예:
+- 쓰러진 사람과 문이 함께 보인다면, 이 문이 그냥 지나가는 길은 아닌 것 같다.
+- 테이블 위에 남은 흔적을 보면, 여기에서 확인해야 할 단서가 더 있는 것 같다.
+
+나쁜 예:
+- 이곳에 남은 흔적이 모든 것을 말해주고 있다
+- 무언가 이상한 기운이 느껴진다
 
 [LLaVA 장면 분석]
 {scene_text}
 
-[현재 구역]
-{area_id}
-
 [RAG 문서]
 {rag_context}
 
-규칙:
-- 반드시 한국어로만 답한다.
-- 1문장만 출력한다.
-- RAG 문서에 없는 정보는 만들지 않는다.
-- 정답을 직접 말하지 않는다.
-- 단순 설명이 아니라 다음 조사 방향을 암시한다.
-- 목록, 제목, 대괄호, 마크다운을 쓰지 않는다.
-- 플레이어가 독백하는 형태로 문장을 출력한다.
-
-힌트 한 문장:
+위 정보를 기반으로 힌트 1문장을 작성하라.
 """
         }
     ]
@@ -187,59 +245,74 @@ def generate_hint_with_gemma_lora(scene_text, area_id, rag_docs):
     with torch.no_grad():
         output = llm_model.generate(
             **inputs,
-            max_new_tokens=45,
-            do_sample=False,
-            repetition_penalty=1.15,
-            no_repeat_ngram_size=3,
+            max_new_tokens=80,
+            do_sample=True,
+            temperature=0.8,
+            top_p=0.9,
+            repetition_penalty=1.08,
             pad_token_id=tokenizer.eos_token_id
         )
 
     generated = output[0][inputs["input_ids"].shape[-1]:]
     hint = tokenizer.decode(generated, skip_special_tokens=True).strip()
 
-    # =========================
-    # 후처리
-    # =========================
     hint = hint.replace("\n", " ").strip()
-    hint = hint.replace("[", "").replace("]", "").replace("-", "").strip()
 
-    if "힌트:" in hint:
-        hint = hint.split("힌트:")[-1].strip()
+    for prefix in ["힌트:", "답변:", "출력:", "-", "•"]:
+        if hint.startswith(prefix):
+            hint = hint[len(prefix):].strip()
 
-    if "힌트 한 문장:" in hint:
-        hint = hint.split("힌트 한 문장:")[-1].strip()
-
-    # 한 문장 제한
     for sep in ["。", ".", "!", "?"]:
         if sep in hint:
-            hint = hint.split(sep)[0].strip() + sep
+            hint = hint.split(sep)[0].strip() + "."
             break
 
-    # 이상 출력 fallback
-    banned = [
-        "날짜", "시간", "순서", "패턴", "표시", "배열",
-        "암호", "비밀번호", "번호", "코드", "기호",
-        "목록", "제목", "마크다운", "규칙", "분석", "출력", "예시"
+    banned_words = [
+        "JSON", "목록", "마크다운", "출력", "예시",
+        "날짜", "시간", "번호", "암호", "비밀번호", "순서", "패턴"
     ]
 
-    if any(word in hint for word in banned):
-        hint = "시체 주변의 흔적과 출입증처럼 보이는 물건이 막힌 문과 관련되어 있을 가능성이 있다."
+    if len(hint) < 5 or any(word in hint for word in banned_words):
+        hint = "이 장면에 남은 흔적들을 보면, 주변을 더 살펴봐야 할 것 같다."
 
-    if len(hint) < 5:
-        hint = "시체 주변의 흔적과 출입증처럼 보이는 물건이 막힌 문과 관련되어 있을 가능성이 있다."
+    if not hint.endswith("."):
+        hint += "."
 
     return hint
 
-# =========================
-# 테스트용
-# =========================
+def make_hint_from_reasoning(reasoning):
+    summary = reasoning.get("reasoning_summary", "").strip()
+
+    banned_words = [
+        "날짜", "시간", "순서", "패턴", "표시", "배열",
+        "암호", "비밀번호", "번호", "코드", "기호",
+        "목록", "제목", "마크다운", "출력", "예시",
+        "JSON", "필드"
+    ]
+
+    if len(summary) < 5:
+        return "이 장면에서 보이는 단서들을 기준으로 주변을 더 살펴봐야 할 것 같다."
+
+    if any(word in summary for word in banned_words):
+        return "이 장면에서 보이는 단서들을 기준으로 주변을 더 살펴봐야 할 것 같다."
+
+    summary = summary.replace("\n", " ").strip()
+
+    for sep in ["。", ".", "!", "?"]:
+        if sep in summary:
+            summary = summary.split(sep)[0].strip()
+
+    if summary.endswith(("다", "요", "같다", "것 같다")):
+        return summary + "."
+
+    return summary + "."
+
+
 @app.route("/ping", methods=["GET"])
 def ping():
     return jsonify({"status": "ok"})
 
-# =========================
-# API
-# =========================
+
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
@@ -261,7 +334,7 @@ def predict():
         rag_docs = retrieve_documents_by_area(area_id, spoiler_level)
 
         scene = analyze_image_with_llava(image_bytes)
-        hint = generate_hint_with_gemma_lora(scene, area_id, rag_docs)
+        hint = generate_hint_with_qwen3_lora(scene, area_id, rag_docs)
 
         print("SCENE:", scene)
         print("RAG DOCS:", rag_docs)
@@ -277,9 +350,7 @@ def predict():
         print("ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
 
-# =========================
-# 실행
-# =========================
+
 if __name__ == "__main__":
     print(f"Using device: {device}")
     if torch.cuda.is_available():
