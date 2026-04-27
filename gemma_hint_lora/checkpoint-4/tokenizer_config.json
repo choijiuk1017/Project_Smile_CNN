@@ -42,7 +42,7 @@
     "think_token": "<|think|>"
   },
   "pad_token": "<pad>",
-  "padding_side": "left",
+  "padding_side": "right",
   "processor_class": "Gemma4Processor",
   "response_schema": {
     "properties": {

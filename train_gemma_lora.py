@@ -1,4 +1,3 @@
-import re
 import torch
 from datasets import load_dataset
 from transformers import (
@@ -18,20 +17,31 @@ SYSTEM_PROMPT = """너는 공포 퍼즐 게임의 조사 보조 AI다.
 한국어 한 문장만 출력한다.
 RAG 문서를 그대로 복사하지 않는다.
 장면에 실제로 보이는 요소만 사용한다.
-문서 사실은 참고만 하고 자연스러운 힌트로 바꾼다.
+문서 사실과 힌트 규칙은 참고만 한다.
 정답을 직접 말하지 않는다.
+문, 카드, 키패드, 장치의 용도를 단정하지 않는다.
 '무언가', '어딘가'를 쓰지 않는다."""
 
 
-def build_prompt(scene: str, rag: str) -> str:
+def build_prompt(scene, facts, hint_rules, forbidden_assumptions):
+    facts_text = "\n".join(f"- {x}" for x in facts)
+    rules_text = "\n".join(f"- {x}" for x in hint_rules)
+    forbidden_text = "\n".join(f"- {x}" for x in forbidden_assumptions)
+
     return f"""<start_of_turn>user
 {SYSTEM_PROMPT}
 
 [장면]
 {scene}
 
-[참고 문서]
-{rag}
+[사실]
+{facts_text}
+
+[힌트 규칙]
+{rules_text}
+
+[금지 추론]
+{forbidden_text}
 
 힌트 문장만 작성해라.<end_of_turn>
 <start_of_turn>model
@@ -64,7 +74,6 @@ class CausalLMCollator:
                 f["labels"] + [-100] * pad_len
             )
 
-            # Gemma 4 text-only 학습에서도 필요할 수 있음
             token_type_ids_list.append([0] * max_len)
             mm_token_type_ids_list.append([0] * max_len)
 
@@ -80,9 +89,6 @@ class CausalLMCollator:
 def build_language_model_targets():
     targets = []
 
-    # 로그 기준 Gemma 4 E2B-it는 language_model.layers.0~34 존재
-    # 초반 0~14는 q/k/v/o 전부 존재
-    # 후반 15~34는 일부 레이어에서 k_proj, v_proj가 로그에 안 보였음
     for i in range(35):
         base = f"language_model.layers.{i}"
 
@@ -124,11 +130,6 @@ def main():
 
     target_modules = build_language_model_targets()
 
-    print("LoRA target count:", len(target_modules))
-    print("LoRA target sample:")
-    for t in target_modules[:20]:
-        print(" ", t)
-
     lora_config = LoraConfig(
         r=8,
         lora_alpha=16,
@@ -145,7 +146,13 @@ def main():
     model.print_trainable_parameters()
 
     def tokenize(example):
-        prompt = build_prompt(example["scene"], example["rag"])
+        prompt = build_prompt(
+            example["scene"],
+            example["facts"],
+            example["hint_rules"],
+            example["forbidden_assumptions"],
+        )
+
         answer = example["answer"].strip() + "<end_of_turn>"
 
         prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
@@ -159,31 +166,19 @@ def main():
         labels = labels[:MAX_LENGTH]
         attention_mask = attention_mask[:MAX_LENGTH]
 
-        label_count = sum(1 for x in labels if x != -100)
-
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "labels": labels,
-            "label_count": label_count,
         }
 
     dataset = load_dataset("json", data_files=DATA_PATH, split="train")
     dataset = dataset.map(tokenize, remove_columns=dataset.column_names)
 
-    print("Label count sample:")
-    for i in range(min(5, len(dataset))):
-        print(dataset[i]["label_count"])
-
-    dataset = dataset.remove_columns(["label_count"])
-
     collator = CausalLMCollator(tokenizer)
 
     test_batch = collator([dataset[0]])
-    test_batch = {
-        k: v.to(model.device)
-        for k, v in test_batch.items()
-    }
+    test_batch = {k: v.to(model.device) for k, v in test_batch.items()}
 
     model.train()
     output = model(**test_batch)
@@ -214,7 +209,7 @@ def main():
         per_device_train_batch_size=1,
         gradient_accumulation_steps=8,
         learning_rate=2e-4,
-        num_train_epochs=8,
+        num_train_epochs=6,
         logging_steps=1,
         save_strategy="epoch",
         fp16=(dtype == torch.float16),
