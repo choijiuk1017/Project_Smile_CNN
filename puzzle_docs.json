@@ -3,83 +3,175 @@
     "id": "tutorial_spawn_corpse",
     "area_id": "TutorialZone",
     "scene_type": "spawn_corpse",
+    "search_scenes": [
+      "A single person is lying on the floor in a dark room.",
+      "One human figure is lying motionless on the ground.",
+      "A person appears injured or dead on a tiled floor.",
+      "A body is lying near a door in a dimly lit room.",
+      "A figure is lying on the floor with blood splatters nearby.",
+      "A person is collapsed on the floor in a bloodstained room."
+    ],
     "spoiler_level": 1,
     "facts": [
-      "게임 시작 지점 앞에는 붉은 조명 아래 시체가 있다.",
-      "이 시체는 퍼즐 정답이 아니라 분위기 조성을 위한 단서다.",
-      "시체는 무언가에게 공격받은 것처럼 보인다."
+      "계단 위 복도에는 여러 구의 시체가 있다.",
+      "복도 전체에 핏자국과 쓰러진 사람들이 보인다.",
+      "복도에서 끔찍한 사건이 있었던 것처럼 보인다."
     ],
     "hint_examples": [
       "저 시체는 뭐지? 무언가한테 공격받은 것 같은데...",
-      "시작부터 기분 나쁜 광경이군. 대체 무슨 일이 있었던 거지?"
+      "저 사람... 그냥 쓰러진 건 아닌 것 같다."
     ]
   },
   {
     "id": "tutorial_hallway_corpses",
     "area_id": "TutorialZone",
     "scene_type": "hallway_corpses",
+    "search_scenes": [
+      "A corridor contains several bodies lying on the floor.",
+      "Multiple human figures are lying in a hallway.",
+      "Several bodies are scattered across a corridor floor.",
+      "A dimly lit hallway contains two or more bodies.",
+      "Several people are lying on the ground in a corridor.",
+      "A hallway floor is covered with multiple motionless figures."
+    ],
     "spoiler_level": 1,
     "facts": [
       "계단 위 복도에는 여러 구의 시체가 있다.",
-      "이 시체들은 퍼즐 정답이 아니라 분위기 조성을 위한 장면이다.",
+      "복도 전체에 핏자국과 쓰러진 사람들이 보인다.",
       "복도에서 끔찍한 사건이 있었던 것처럼 보인다."
     ],
     "hint_examples": [
       "끔찍하군... 대체 무슨 일이 있었던 거야?",
-      "여기도 온전한 사람은 없어 보이는군..."
+      "복도 전체가 흔적으로 가득하다."
     ]
   },
   {
     "id": "tutorial_locked_private_door",
     "area_id": "TutorialZone",
     "scene_type": "locked_private_door",
+    "search_scenes": [
+      "A black door labeled PRIVATE is visible.",
+      "A door with the word PRIVATE written on it is shown.",
+      "A PRIVATE door is visible in a dimly lit room.",
+      "A secured door with a keypad or access device is visible.",
+      "A door labeled PRIVATE has a small wall device next to it.",
+      "A locked-looking door with an access panel is visible."
+    ],
     "spoiler_level": 1,
     "facts": [
       "문에는 PRIVATE 표시가 있다.",
-      "문 옆에는 붉은 램프와 푸른빛의 키패드 같은 장치가 있다.",
-      "붉은 램프는 문이 잠긴 상태를 의미한다.",
-      "키패드 같은 장치는 키카드나 출입증이 필요할 수 있음을 암시한다.",
-      "플레이어는 주변을 탐색해야 한다."
+      "문 옆에는 키패드 같은 장치가 있다.",
+      "문은 잠긴 상태일 가능성이 높다.",
+      "키패드 같은 장치는 키카드나 출입증이 필요할 수 있음을 암시한다."
     ],
     "hint_examples": [
       "문이 잠긴 것 같은데... 옆에 키패드를 보면 키카드 같은 것이 필요하겠어...",
-      "문이 잠긴 건가? 어떻게 여는 거지... 일단 주변을 둘러봐야겠어."
+      "PRIVATE라... 그냥 열 수 있는 문은 아닌 것 같다."
     ]
   },
   {
     "id": "tutorial_rest_area",
     "area_id": "TutorialZone",
     "scene_type": "rest_area",
+    "search_scenes": [
+      "A room contains beds and furniture.",
+      "A dilapidated room contains beds, chairs, and a television.",
+      "A room with a bed, chair, table, and television is visible.",
+      "A rest area contains beds and personal furniture.",
+      "A room looks like a place where people used to rest.",
+      "A room contains beds and scattered debris."
+    ],
     "spoiler_level": 1,
     "facts": [
-      "침대와 여러 시체가 있는 방은 직원 휴게 공간처럼 보인다.",
+      "침대와 가구가 있는 방은 직원 휴게 공간처럼 보인다.",
       "이 방 안에는 문을 여는 데 필요한 물건이 있을 수 있다.",
-      "플레이어는 방 안을 살펴봐야 한다."
+      "플레이어는 방 안을 살펴볼 수 있다."
     ],
     "hint_examples": [
       "이곳은 직원들 휴게 공간인가 보군... 여기 어딘가에 필요한 물건이 있을지도 몰라.",
-      "여기도 생존자는 없군... 방 안을 살펴봐야겠어."
+      "여긴 누군가 머물던 곳 같다... 그냥 지나치긴 어렵다."
+    ]
+  },
+  {
+    "id": "tutorial_office_desk",
+    "area_id": "TutorialZone",
+    "scene_type": "office_desk",
+    "search_scenes": [
+      "A room contains a desk and a chair.",
+      "A desk with a computer monitor is visible.",
+      "A room has a desk, chair, and computer monitor.",
+      "A desk with scattered objects is visible in a dim room.",
+      "A table with a cup and a small object is visible.",
+      "A room contains a table, sink, cup, and scattered objects."
+    ],
+    "spoiler_level": 1,
+    "facts": [
+      "책상과 컴퓨터가 있는 사무 공간이다.",
+      "책상 주변에는 단서가 남아 있을 수 있다.",
+      "흩어진 물건들은 조사 대상이 될 수 있다."
+    ],
+    "hint_examples": [
+      "책상 주변에 단서가 남아 있을지도 모른다.",
+      "이 주변에 뭔가 남아 있을 것 같다."
+    ]
+  },
+  {
+    "id": "tutorial_blood_stains_only",
+    "area_id": "TutorialZone",
+    "scene_type": "blood_stains_only",
+    "search_scenes": [
+      "A room has blood stains but no visible body.",
+      "Dark stains are scattered across the floor with no person visible.",
+      "The floor and walls have splatters but no body is visible.",
+      "A dim room contains stains and splatters but no clear object.",
+      "Blood-like marks are visible on the floor without any person nearby.",
+      "A corridor has dark stains but no visible bodies."
+    ],
+    "spoiler_level": 1,
+    "facts": [
+      "핏자국이나 얼룩은 보이지만 시체나 중요한 물체는 보이지 않는다.",
+      "이 흔적만으로는 튜토리얼 퍼즐과 직접 관련된 단서라고 보기 어렵다."
+    ],
+    "hint_examples": [
+      "핏자국은 보이지만, 이것만으로는 확실히 알 수 없다.",
+      "흔적은 있지만 아직 확신하기 어렵다."
     ]
   },
   {
     "id": "tutorial_keycard",
     "area_id": "TutorialZone",
     "scene_type": "keycard",
+    "search_scenes": [
+      "A small card is visible on a desk.",
+      "An access card is lying on a table.",
+      "A keycard-like object is visible near a computer.",
+      "A small rectangular card is placed on a surface.",
+      "A card or ID badge is visible in the room.",
+      "A small card is lying among scattered objects."
+    ],
     "spoiler_level": 1,
     "facts": [
       "키카드는 출입증처럼 보인다.",
       "키카드는 잠긴 문 옆 장치와 관련될 수 있다.",
-      "플레이어는 이 물건을 확인해야 한다."
+      "플레이어는 이 물건을 확인할 수 있다."
     ],
     "hint_examples": [
       "저건 키카드 같은데... 저게 출입증인가?",
-      "이 카드라면 아까 그 문을 열 수 있을지도 몰라."
+      "이 카드라면 아까 그 문과 관련이 있을지도 모른다."
     ]
   },
   {
     "id": "tutorial_no_clue",
     "area_id": "TutorialZone",
     "scene_type": "no_clue",
+    "search_scenes": [
+      "An empty dark room with no clear important object.",
+      "Only walls, floor, and lighting are visible.",
+      "A plain room is visible with no clear clue.",
+      "A dark corner or empty wall is visible.",
+      "No person, card, door label, desk, or bed is clearly visible.",
+      "The scene contains no obvious interactable object."
+    ],
     "spoiler_level": 1,
     "facts": [
       "현재 장면에서는 튜토리얼 퍼즐과 직접 관련된 단서가 확인되지 않는다."

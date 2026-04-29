@@ -26,7 +26,7 @@ logging.getLogger("transformers").setLevel(logging.ERROR)
 # PATH / MODEL CONFIG
 # =========================
 
-RAG_DATA_PATH = "lora_tutorial_hint_reasoning_policy.jsonl"
+RAG_DATA_PATH = "puzzle_docs.json"
 
 LLAVA_MODEL_ID = "llava-hf/llava-onevision-qwen2-0.5b-ov-hf"
 GEMMA_MODEL_ID = "google/gemma-4-E2B-it"
@@ -45,36 +45,55 @@ app = Flask(__name__)
 # =========================
 
 def load_rag_data(path):
-    data = []
-
     with open(path, "r", encoding="utf-8") as f:
-        for line_number, line in enumerate(f, start=1):
-            line = line.strip()
+        text = f.read().strip()
 
-            if not line:
-                continue
-
-            item = json.loads(line)
-
-            required_keys = [
-                "scene_type",
-                "scene",
-                "rag",
-                "reference_answer",
-            ]
-
-            for key in required_keys:
-                if key not in item:
-                    raise ValueError(
-                        f"RAG data missing key '{key}' at line {line_number}"
-                    )
-
-            data.append(item)
-
-    if not data:
+    if not text:
         raise ValueError("RAG data is empty.")
 
-    return data
+    data = json.loads(text)
+
+    normalized = []
+
+    for idx, item in enumerate(data, start=1):
+        required_keys = ["scene_type", "facts", "hint_examples"]
+
+        for key in required_keys:
+            if key not in item:
+                raise ValueError(f"RAG data missing key '{key}' at item {idx}")
+
+        facts = item.get("facts", [])
+        hint_examples = item.get("hint_examples", [])
+
+        search_scenes = item.get("search_scenes")
+
+        if not search_scenes:
+            single = item.get("search_scene", "")
+            search_scenes = [single] if single else []
+
+        if not search_scenes:
+            raise ValueError(f"RAG data missing search_scene/search_scenes at item {idx}")
+
+        rag_text = " ".join(facts)
+        reference_answer = hint_examples[0] if hint_examples else "지금 보이는 것만으로는 확실한 단서를 찾기 어렵다."
+        answer = hint_examples[1] if len(hint_examples) > 1 else reference_answer
+
+        for search_scene in search_scenes:
+            normalized.append({
+                "id": item.get("id", ""),
+                "area_id": item.get("area_id", ""),
+                "scene_type": item["scene_type"],
+                "spoiler_level": item.get("spoiler_level", 1),
+                "scene": search_scene,
+                "rag": rag_text,
+                "reference_answer": reference_answer,
+                "answer": answer,
+            })
+
+    if not normalized:
+        raise ValueError("RAG data is empty.")
+
+    return normalized
 
 
 rag_data = load_rag_data(RAG_DATA_PATH)
@@ -137,27 +156,27 @@ LLAVA_PROMPT = (
 )
 
 
-SYSTEM_PROMPT = """너는 공포 퍼즐 게임의 주인공 독백을 생성한다.
+SYSTEM_PROMPT = """너는 공포 퍼즐 게임의 주인공 추론형 독백을 생성한다.
 
 반드시 지켜라:
-- 명령문으로 말하지 않는다.
+- 단순 감상문이 아니라 관찰을 바탕으로 추론한다.
+- 문장 구조는 '보이는 것 → 의심/추론' 형태로 만든다.
+- 정답을 직접 말하지 않는다.
+- 행동 지시를 하지 않는다.
 - '~하자', '~해야 한다', '~봐야 한다'를 쓰지 않는다.
-- 정답, 해결 방법, 행동 지시를 말하지 않는다.
-- RAG에 없는 물체나 방법을 만들지 않는다.
-- 비밀번호, 열쇠, 카드 같은 단어는 RAG나 기준 독백에 있을 때만 쓴다.
-- 기준 독백의 의미를 유지한다.
-- 짧고 불안한 독백처럼 말한다.
+- RAG에 없는 물체나 해결 방법을 만들지 않는다.
 - 한 문장만 출력한다.
 
 좋은 예:
-'저건 그냥 지나칠 물건은 아닌 것 같다.'
-'이 방에는 뭔가 남아 있을지도 모른다.'
-'저 문은 그냥 열릴 것 같지 않다.'
+'문 옆의 장치를 보면... 그냥 열 수 있는 문은 아닌 것 같다.'
+'피가 이렇게 튄 걸 보면... 단순한 사고는 아닌 것 같다.'
+'책상 주변에 물건들이 흩어져 있다... 뭔가 남아 있을지도 모른다.'
 
 나쁜 예:
-'책상을 둘러보자.'
-'문을 열려면 비밀번호가 필요하다.'
-'단서를 찾아야 한다.'"""
+'이건 단순한 사고가 아니다.'
+'이곳은 기분 나쁘다.'
+'책상을 조사해보자.'
+'키카드를 찾아야 한다.'"""
 
 DEFAULT_REASONING_POLICY = """기준 독백의 의미를 가장 우선한다.
 scene은 현재 이미지 상황을 참고하기 위한 정보다.
@@ -245,10 +264,11 @@ def retrieve_best_rag(scene_text, top_k=3):
         results.append(
             {
                 "score": score,
-                "scene_type": item["scene_type"],
+                "scene_type": item.get("scene_type", "unknown"),
                 "scene": item["scene"],
                 "rag": item["rag"],
                 "reference_answer": item["reference_answer"],
+                "answer": item.get("answer", item["reference_answer"]),
                 "reasoning_policy": item.get(
                     "reasoning_policy",
                     DEFAULT_REASONING_POLICY,
@@ -263,7 +283,6 @@ def select_primary_rag(rag_results, threshold=0.55):
     if not rag_results:
         return {
             "score": 0.0,
-            "scene_type": "no_clue",
             "scene": "",
             "rag": "단서 없음",
             "reference_answer": "잘 모르겠군.",
@@ -275,7 +294,6 @@ def select_primary_rag(rag_results, threshold=0.55):
     if primary["score"] < threshold:
         return {
             "score": primary["score"],
-            "scene_type": "no_clue",
             "scene": primary["scene"],
             "rag": "단서 없음",
             "reference_answer": "지금 보이는 것만으로는 확실한 단서를 찾기 어렵다.",
@@ -291,7 +309,6 @@ def build_rag_context(rag_results):
     for idx, item in enumerate(rag_results, start=1):
         lines.append(f"[검색 후보 {idx}]")
         lines.append(f"score: {item['score']:.4f}")
-        lines.append(f"scene_type: {item['scene_type']}")
         lines.append(f"reference_scene: {item['scene']}")
         lines.append(f"rag: {item['rag']}")
         lines.append(f"reference_answer: {item['reference_answer']}")
@@ -323,7 +340,7 @@ def build_gemma_prompt(scene, rag, reference_answer, reasoning_policy=None):
 [추론 규칙]
 {reasoning_policy}
 
-기준 독백과 같은 의미로 자연스럽게 한 문장으로 바꿔라.<end_of_turn>
+보이는 단서를 바탕으로 짧게 추론하는 주인공 독백 한 문장으로 바꿔라.<end_of_turn>
 <start_of_turn>model
 """
 
@@ -370,6 +387,9 @@ def generate_hint(scene_text, rag_results):
     primary_rag = select_primary_rag(rag_results)
     rag_context = build_rag_context(rag_results)
 
+    if primary_rag.get("scene_type") == "no_clue":
+        return primary_rag.get("answer", primary_rag["reference_answer"]), primary_rag, rag_context
+
     prompt = build_gemma_prompt(
         scene=scene_text,
         rag=primary_rag["rag"],
@@ -387,9 +407,10 @@ def generate_hint(scene_text, rag_results):
         output = gemma_model.generate(
             **inputs,
             max_new_tokens=80,
-            do_sample=False,
+            do_sample=True,
+            temperature=0.7,
+            top_p=0.9,
             repetition_penalty=1.03,
-            no_repeat_ngram_size=3,
             pad_token_id=tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id,
         )
@@ -402,6 +423,9 @@ def generate_hint(scene_text, rag_results):
     )
 
     hint = clean_hint(result)
+
+    if len(hint.strip()) < 5:
+        hint = primary_rag.get("answer", primary_rag["reference_answer"])
 
     return hint, primary_rag, rag_context
 

@@ -11,35 +11,38 @@ from peft import LoraConfig, get_peft_model
 MODEL_ID = "google/gemma-4-E2B-it"
 DATA_PATH = "lora_tutorial_hint_reasoning_policy.jsonl"
 OUTPUT_DIR = "gemma_hint_lora"
-MAX_LENGTH = 512
 
-SYSTEM_PROMPT = """너는 공포 퍼즐 게임의 주인공 독백을 생성한다.
+# GPU 사용량 줄이기 위해 512보다 줄임.
+# 너무 짧아서 잘리면 448로 올리십시오.
+MAX_LENGTH = 384
+
+SYSTEM_PROMPT = """너는 공포 퍼즐 게임의 주인공 추론형 독백을 생성한다.
 
 반드시 지켜라:
-- 명령문으로 말하지 않는다.
+- 단순 감상문이 아니라 관찰을 바탕으로 추론한다.
+- 문장 구조는 '보이는 것 → 의심/추론' 형태로 만든다.
+- 정답을 직접 말하지 않는다.
+- 행동 지시를 하지 않는다.
 - '~하자', '~해야 한다', '~봐야 한다'를 쓰지 않는다.
-- 정답, 해결 방법, 행동 지시를 말하지 않는다.
-- RAG에 없는 물체나 방법을 만들지 않는다.
-- 비밀번호, 열쇠, 카드 같은 단어는 RAG나 기준 독백에 있을 때만 쓴다.
-- 기준 독백의 의미를 유지한다.
-- 짧고 불안한 독백처럼 말한다.
+- RAG에 없는 물체나 해결 방법을 만들지 않는다.
 - 한 문장만 출력한다.
 
 좋은 예:
-'저건 그냥 지나칠 물건은 아닌 것 같다.'
-'이 방에는 뭔가 남아 있을지도 모른다.'
-'저 문은 그냥 열릴 것 같지 않다.'
+'문 옆의 장치를 보면... 그냥 열 수 있는 문은 아닌 것 같다.'
+'피가 이렇게 튄 걸 보면... 단순한 사고는 아닌 것 같다.'
+'책상 주변에 물건들이 흩어져 있다... 뭔가 남아 있을지도 모른다.'
 
 나쁜 예:
-'책상을 둘러보자.'
-'문을 열려면 비밀번호가 필요하다.'
-'단서를 찾아야 한다.'"""
+'이건 단순한 사고가 아니다.'
+'이곳은 기분 나쁘다.'
+'책상을 조사해보자.'
+'키카드를 찾아야 한다.'"""
 
-DEFAULT_REASONING_POLICY = """기준 독백의 의미를 가장 우선한다.
-scene은 현재 이미지 상황을 참고하기 위한 정보다.
-rag는 기준 독백이 어떤 퍼즐 맥락인지 확인하기 위한 정보다.
-기준 독백에 없는 새로운 행동, 위치, 물체, 해결 방법을 추가하지 않는다.
-짧고 진중한 주인공 독백형으로 출력한다."""
+DEFAULT_REASONING_POLICY = (
+    "기준 독백의 의미를 유지한다. "
+    "새 물체, 해결 방법, 행동 지시를 추가하지 않는다. "
+    "짧고 불안한 주인공 독백으로 한 문장만 출력한다."
+)
 
 
 def build_prompt(scene, rag, reference_answer, reasoning_policy=None):
@@ -61,7 +64,7 @@ def build_prompt(scene, rag, reference_answer, reasoning_policy=None):
 [추론 규칙]
 {reasoning_policy}
 
-기준 독백과 같은 의미로 자연스럽게 한 문장으로 바꿔라.<end_of_turn>
+기준 독백과 같은 의미의 새로운 주인공 독백을 한 문장으로 출력하라.<end_of_turn>
 <start_of_turn>model
 """
 
@@ -104,13 +107,8 @@ def build_language_model_targets():
         base = f"language_model.layers.{i}"
 
         targets.append(f"{base}.self_attn.q_proj")
-        targets.append(f"{base}.self_attn.k_proj")
         targets.append(f"{base}.self_attn.v_proj")
         targets.append(f"{base}.self_attn.o_proj")
-
-        targets.append(f"{base}.mlp.gate_proj")
-        targets.append(f"{base}.mlp.up_proj")
-        targets.append(f"{base}.mlp.down_proj")
 
     return targets
 
@@ -133,9 +131,13 @@ def main():
         MODEL_ID,
         dtype=dtype,
         device_map="auto",
+        low_cpu_mem_usage=True,
     )
 
     model.config.use_cache = False
+
+    # 메모리 절약. 속도는 조금 느려질 수 있지만 VRAM 사용량은 줄어듭니다.
+    model.gradient_checkpointing_enable()
 
     lora_config = LoraConfig(
         r=16,
@@ -144,7 +146,7 @@ def main():
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM",
-    )
+    )   
 
     model = get_peft_model(model, lora_config)
 
@@ -204,6 +206,7 @@ def main():
 
     collator = CausalLMCollator(tokenizer)
 
+    # 1개 샘플로 gradient 연결만 간단히 확인.
     test_batch = collator([dataset[0]])
     test_batch = {
         k: v.to(model.device)
@@ -211,18 +214,15 @@ def main():
     }
 
     output = model(**test_batch)
-
     print("LOSS:", output.loss.item())
     print("LOSS REQUIRES GRAD:", output.loss.requires_grad)
 
     output.loss.backward()
 
     found_grad = False
-
     for name, param in model.named_parameters():
         if param.requires_grad:
             grad_sum = 0.0 if param.grad is None else param.grad.abs().sum().item()
-
             if grad_sum > 0:
                 print("GRAD CHECK OK:", name, grad_sum)
                 found_grad = True
@@ -231,16 +231,17 @@ def main():
     if not found_grad:
         raise RuntimeError("LoRA gradient가 0입니다.")
 
-    model.zero_grad()
+    model.zero_grad(set_to_none=True)
 
     args = TrainingArguments(
         output_dir=OUTPUT_DIR,
         per_device_train_batch_size=1,
-        gradient_accumulation_steps=4,
-        learning_rate=1e-4,
-        num_train_epochs=3,
+        gradient_accumulation_steps=8,
+        learning_rate=8e-5,
+        num_train_epochs=5,
         logging_steps=1,
         save_strategy="epoch",
+        save_total_limit=1,
         fp16=(dtype == torch.float16),
         bf16=(dtype == torch.bfloat16),
         optim="adamw_torch",
